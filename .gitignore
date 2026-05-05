@@ -1,0 +1,27 @@
+# --- STREAMLIT & GÜVENLİK ---
+# Gerçek şifrelerin olduğu dosyayı ASLA GitHub'a yükleme!
+.streamlit/secrets.toml
+.env
+secrets.toml
+
+# --- PYTHON SİSTEM DOSYALARI ---
+# Bilgisayarının oluşturduğu gereksiz çalışma dosyaları
+__pycache__/
+*.py[cod]
+*$py.class
+.ipynb_checkpoints
+
+# --- LOGLAR VE GEÇİCİ VERİLER ---
+# Kodun ürettiği kayıtlar ve büyük veri dosyaları
+*.log
+pipeline_execution.log
+*.csv
+*.xlsx
+*.db
+*.sqlite3
+
+# --- SANAL ORTAMLAR ---
+# Yazılım kütüphanelerinin yüklendiği klasörler
+venv/
+env/
+.venv/
