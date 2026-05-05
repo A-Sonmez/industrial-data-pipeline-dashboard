@@ -1,0 +1,8 @@
+streamlit
+pandas
+pg8000
+psycopg2-binary
+apscheduler
+altair
+openpyxl
+numpy
