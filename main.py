@@ -13,6 +13,7 @@ import streamlit as st
 # ******************************************************************************
 # --- 0. OTOMASYON AYARLARI ---
 # ******************************************************************************
+# Sistemin çalışma periyodu buradan yönetilir.
 SCHEDULE_INTERVAL_MINUTES = 60 # Varsayılan: Her 60 dakikada bir çalışır
 
 # ******************************************************************************
@@ -24,7 +25,8 @@ RAW_STOCKS_FILE = os.path.join(BASE_PATH, 'production_stocks_daily.csv')
 WIP_PRODUCTION_FILE = os.path.join(BASE_PATH, 'factory_wip_report.xlsx') 
 FINAL_REPORT_LOG = os.path.join(BASE_PATH, 'pipeline_execution_log.csv')
 
-# AWS Redshift bağlantı bilgileri st.secrets üzerinden güvenli şekilde çekilir
+# AWS Redshift bağlantı bilgileri st.secrets üzerinden güvenli şekilde çekilir.
+# Bu yapı, şifrelerin kod içerisinde açık şekilde (hardcoded) bulunmasını engeller.
 try:
     DB_CONFIG = {
         "host": st.secrets["redshift"]["host"],
@@ -47,12 +49,13 @@ TEMP_TABLE = "temp_staged_load"
 def clean_production_data(df: pd.DataFrame) -> pd.DataFrame:
     """
     Ham veriyi kurumsal standartlara göre temizler ve valide eder.
+    Regex ve Pandas kullanarak veri bütünlüğünü sağlar.
     """
     # Regex ile parça numarası temizliği (Sadece alfanumerik karakterler)
     if 'part_number' in df.columns:
         df['part_number'] = df['part_number'].apply(lambda x: re.sub(r'[^a-zA-Z0-9]', '', str(x)))
     
-    # Eksik verilerin yönetimi (Data Integrity)
+    # Eksik verilerin yönetimi (Data Integrity - Veri Bütünlüğü)
     df.fillna({'quantity': 0, 'status': 'PENDING'}, inplace=True)
     
     # Tarih formatı standardizasyonu
@@ -64,6 +67,7 @@ def clean_production_data(df: pd.DataFrame) -> pd.DataFrame:
 def execute_redshift_upsert(df: pd.DataFrame, target: str, temp: str):
     """
     AWS Redshift üzerinde yüksek performanslı UPSERT (Merge) işlemi.
+    Mevcut kayıtları günceller, olmayanları ekler.
     """
     if DB_CONFIG is None: return
 
@@ -93,7 +97,7 @@ def execute_redshift_upsert(df: pd.DataFrame, target: str, temp: str):
         conn.close()
 
 def scheduled_job_wrapper():
-    """Zamanlayıcı tarafından tetiklenen ana döngü"""
+    """Zamanlayıcı tarafından tetiklenen ana döngü fonksiyonu"""
     print(f"🕒 İşlem Döngüsü Başladı: {time.ctime()}")
     # try:
     #     # Örnek iş akışı:
@@ -104,6 +108,7 @@ def scheduled_job_wrapper():
     #     print(f"İş akışı hatası: {e}")
 
 if __name__ == '__main__':
+    # Scheduler yapılandırması
     scheduler = BlockingScheduler()
     trigger = IntervalTrigger(minutes=SCHEDULE_INTERVAL_MINUTES)
     
@@ -114,7 +119,7 @@ if __name__ == '__main__':
     print("----------------------------------------------------------------------")
     
     try:
-        scheduled_job_wrapper() # İlk tetikleme
+        scheduled_job_wrapper() # İlk tetikleme (manuel)
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):
-        print("Sistem durduruldu.")
+        print("Sistem kullanıcı tarafından durduruldu.")
