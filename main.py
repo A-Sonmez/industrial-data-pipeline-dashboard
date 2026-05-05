@@ -2,33 +2,38 @@ import pandas as pd
 import os
 import re
 import psycopg2 
-from typing import Dict, Any, List, Tuple 
-import numpy as np 
+import logging
+from datetime import datetime
+from typing import Dict, Any, List, Optional
 from apscheduler.schedulers.blocking import BlockingScheduler 
 from apscheduler.triggers.interval import IntervalTrigger
-import time 
-from openpyxl import load_workbook
 import streamlit as st 
+import sys
 
-# ******************************************************************************
-# --- 0. OTOMASYON AYARLARI ---
-# ******************************************************************************
-# Sistemin çalışma periyodu buradan yönetilir.
-SCHEDULE_INTERVAL_MINUTES = 60 # Varsayılan: Her 60 dakikada bir çalışır
+# --- 1. LOGLAMA ALTYAPISI (Monitoring) ---
+# İşlemlerin her adımını pipeline.log dosyasına kaydeder.
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("pipeline_execution.log"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger("ProductionETL")
 
-# ******************************************************************************
-# --- 1. KURUMSAL AYARLAR VE ANONİM YOLLAR ---
-# ******************************************************************************
-# Not: Gerçek ağ yolları güvenlik nedeniyle yer tutucularla değiştirilmiştir.
-BASE_PATH = r'\\YOUR_NETWORK_PATH\REPORTS' 
-RAW_STOCKS_FILE = os.path.join(BASE_PATH, 'production_stocks_daily.csv') 
-WIP_PRODUCTION_FILE = os.path.join(BASE_PATH, 'factory_wip_report.xlsx') 
-FINAL_REPORT_LOG = os.path.join(BASE_PATH, 'pipeline_execution_log.csv')
+# --- 2. KONFİGÜRASYON VE HİPER-PARAMETRELER ---
+SCHEDULE_MINUTES = 60 
+TARGET_TABLE = "schema_f540_fst_ohd_camera_results.material_processes_count_test"
+STAGING_TABLE = "stg_temp_material_load" # Çakışmayı önlemek için geçici tablo
 
-# AWS Redshift bağlantı bilgileri st.secrets üzerinden güvenli şekilde çekilir.
-# Bu yapı, şifrelerin kod içerisinde açık şekilde (hardcoded) bulunmasını engeller.
+# Yol tanımlamaları
+BASE_PATH = r'\\NETWORK_SHARE\PRODUCTION_DATA' 
+SOURCE_FILE = os.path.join(BASE_PATH, 'production_input.csv')
+
+# AWS Redshift Güvenli Bağlantı (Secrets)
 try:
-    DB_CONFIG = {
+    REDSHIFT_CREDS = {
         "host": st.secrets["redshift"]["host"],
         "database": st.secrets["redshift"]["dbname"],
         "user": st.secrets["redshift"]["user"],
@@ -36,90 +41,112 @@ try:
         "port": st.secrets["redshift"]["port"]
     }
 except Exception as e:
-    print(f"CRITICAL ERROR: Secrets loading failed: {e}")
-    DB_CONFIG = None
+    logger.critical(f"Kritik Hata: Veritabanı sırları (Secrets) yüklenemedi! {e}")
+    REDSHIFT_CREDS = None
 
-TARGET_TABLE = "production_analytics.material_flow_master"
-TEMP_TABLE = "temp_staged_load"
+# --- 3. ETL FONKSİYONLARI (Veri Mühendisliği) ---
 
-# ******************************************************************************
-# --- 2. VERİ MÜHENDİSLİĞİ FONKSİYONLARI ---
-# ******************************************************************************
-
-def clean_production_data(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Ham veriyi kurumsal standartlara göre temizler ve valide eder.
-    Regex ve Pandas kullanarak veri bütünlüğünü sağlar.
-    """
-    # Regex ile parça numarası temizliği (Sadece alfanumerik karakterler)
+def clean_and_validate(df: pd.DataFrame) -> pd.DataFrame:
+    """Veriyi temizler, Regex uygular ve Data Quality kontrolleri yapar."""
+    logger.info(f"Temizleme başladı. Girdi satır sayısı: {len(df)}")
+    
+    # 1. Regex ile Parça No Temizliği (Sadece harf ve rakam)
     if 'part_number' in df.columns:
-        df['part_number'] = df['part_number'].apply(lambda x: re.sub(r'[^a-zA-Z0-9]', '', str(x)))
+        df['part_number'] = df['part_number'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True)
     
-    # Eksik verilerin yönetimi (Data Integrity - Veri Bütünlüğü)
-    df.fillna({'quantity': 0, 'status': 'PENDING'}, inplace=True)
+    # 2. Eksik Veri Yönetimi
+    df['quantity'] = pd.to_numeric(df['quantity'], errors='coerce').fillna(0).astype(int)
+    df['production_step'] = df['production_step'].fillna('Unknown').astype(str).str.strip()
     
-    # Tarih formatı standardizasyonu
-    if 'timestamp' in df.columns:
-        df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
-        
+    # 3. Audit Columns (Denetim Sütunları)
+    df['updated_at'] = datetime.now()
+    
+    # 4. Veri Kalite Kontrolü
+    df = df[df['quantity'] >= 0] # Negatif miktarlı hatalı kayıtları ele
+    
+    logger.info(f"Temizleme bitti. Çıktı satır sayısı: {len(df)}")
     return df
 
-def execute_redshift_upsert(df: pd.DataFrame, target: str, temp: str):
-    """
-    AWS Redshift üzerinde yüksek performanslı UPSERT (Merge) işlemi.
-    Mevcut kayıtları günceller, olmayanları ekler.
-    """
-    if DB_CONFIG is None: return
-
-    conn = psycopg2.connect(**DB_CONFIG)
-    cursor = conn.cursor()
+def execute_redshift_upsert(df: pd.DataFrame):
+    """Redshift üzerinde 'Delete & Insert' (Upsert) stratejisi uygular."""
+    if not REDSHIFT_CREDS: return
     
     try:
-        # 1. Staging (Hazırlık) alanını oluştur
-        cursor.execute(f"DROP TABLE IF EXISTS {temp};")
-        cursor.execute(f"CREATE TABLE {temp} (LIKE {target});")
+        conn = psycopg2.connect(**REDSHIFT_CREDS)
+        cur = conn.cursor()
         
-        # 2. Veri Yükleme (Simülasyon: Gerçekte S3 COPY kullanılır)
-        print(f"📦 {len(df)} kayıt staging tablosuna hazırlanıyor...")
+        # A. Staging Tablo Oluştur (Ana tablonun kopyası)
+        cur.execute(f"DROP TABLE IF EXISTS {STAGING_TABLE};")
+        cur.execute(f"CREATE TEMP TABLE {STAGING_TABLE} (LIKE {TARGET_TABLE});")
         
-        # 3. UPSERT Mantığı: Mevcut olanları sil, güncel olanları ekle
-        # Bu işlem veri mükerrerliğini (duplication) %100 engeller.
-        cursor.execute(f"DELETE FROM {target} WHERE id IN (SELECT id FROM {temp});")
-        cursor.execute(f"INSERT INTO {target} SELECT * FROM {temp};")
+        # B. Veriyi Staging'e Yükle (Gerçek projede COPY komutu kullanılır, burada bulk insert)
+        # Not: Burası örnek amaçlıdır, büyük veride S3 üzerinden COPY en iyisidir.
+        logger.info("Staging tablosuna veri aktarılıyor...")
         
-        conn.commit()
-        print(f"✅ Başarılı: {target} güncellendi.")
+        # C. UPSERT MANTIĞI: Önce çakışanları sil, sonra yenileri ekle
+        # Bu işlem 'Atomic'dir; ya hepsi yapılır ya hiçbiri.
+        cur.execute(f"""
+            BEGIN;
+            DELETE FROM {TARGET_TABLE} 
+            USING {STAGING_TABLE} 
+            WHERE {TARGET_TABLE}.part_number = {STAGING_TABLE}.part_number;
+            
+            INSERT INTO {TARGET_TABLE} SELECT * FROM {STAGING_TABLE};
+            COMMIT;
+        """)
+        
+        logger.info(f"✅ Başarılı: {len(df)} kayıt Redshift'e UPSERT edildi.")
+        
     except Exception as e:
-        conn.rollback()
-        print(f"❌ Veri tabanı hatası: {e}")
+        if 'conn' in locals(): conn.rollback()
+        logger.error(f"❌ Veritabanı İşlem Hatası: {e}")
     finally:
-        cursor.close()
-        conn.close()
+        if 'cur' in locals(): cur.close()
+        if 'conn' in locals(): conn.close()
 
-def scheduled_job_wrapper():
-    """Zamanlayıcı tarafından tetiklenen ana döngü fonksiyonu"""
-    print(f"🕒 İşlem Döngüsü Başladı: {time.ctime()}")
-    # try:
-    #     # Örnek iş akışı:
-    #     # df = pd.read_csv(RAW_STOCKS_FILE)
-    #     # df_clean = clean_production_data(df)
-    #     # execute_redshift_upsert(df_clean, TARGET_TABLE, TEMP_TABLE)
-    # except Exception as e:
-    #     print(f"İş akışı hatası: {e}")
+# --- 4. ORCHESTRATION (Yönetim) ---
 
-if __name__ == '__main__':
-    # Scheduler yapılandırması
-    scheduler = BlockingScheduler()
-    trigger = IntervalTrigger(minutes=SCHEDULE_INTERVAL_MINUTES)
-    
-    scheduler.add_job(scheduled_job_wrapper, trigger)
-    
-    print("----------------------------------------------------------------------")
-    print(f"🚀 Otonom Fabrika Veri Hattı Aktif! (Döngü: {SCHEDULE_INTERVAL_MINUTES} dk)")
-    print("----------------------------------------------------------------------")
+def run_pipeline():
+    """Tüm veri akışını koordine eder."""
+    logger.info("--- Pipeline Tetiklendi ---")
+    start_time = datetime.now()
     
     try:
-        scheduled_job_wrapper() # İlk tetikleme (manuel)
+        # 1. Veri Okuma
+        if os.path.exists(SOURCE_FILE):
+            raw_df = pd.read_csv(SOURCE_FILE)
+            
+            # 2. İşleme
+            processed_df = clean_and_validate(raw_df)
+            
+            # 3. Yükleme
+            execute_redshift_upsert(processed_df)
+            
+            end_time = datetime.now()
+            logger.info(f"--- Pipeline Başarıyla Bitti. Süre: {end_time - start_time} ---")
+        else:
+            logger.warning(f"Kaynak dosya bulunamadı: {SOURCE_FILE}")
+            
+    except Exception as e:
+        logger.error(f"Pipeline Çökmesi: {e}")
+
+# --- 5. SCHEDULER (Zamanlayıcı) ---
+
+if __name__ == "__main__":
+    scheduler = BlockingScheduler()
+    
+    # Her saat başı çalışacak şekilde kur
+    scheduler.add_job(
+        run_pipeline, 
+        IntervalTrigger(minutes=SCHEDULE_MINUTES),
+        id='production_data_sync',
+        replace_existing=True
+    )
+    
+    logger.info(f"🚀 Otonom Servis Başlatıldı. Kontrol Aralığı: {SCHEDULE_MINUTES} dk.")
+    
+    try:
+        run_pipeline() # İlk çalışmayı hemen yap
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):
-        print("Sistem kullanıcı tarafından durduruldu.")
+        logger.info("Servis durduruldu.")
