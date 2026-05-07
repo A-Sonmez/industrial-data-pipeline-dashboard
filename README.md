@@ -1,36 +1,51 @@
-# industrial-data-pipeline-dashboard
+Industrial Data Pipeline & Analytics Dashboard
+🏭 Smart Factory Data Management Solution
+This project features an automated ETL (Extract, Transform, Load) system designed for high-volume manufacturing and inventory data. It orchestrates the flow of data from decentralized network sources into AWS Redshift, complemented by an interactive Streamlit dashboard for real-time technical analysis.
 
-🏭 Endüstriyel Veri Hattı & Analitik Dashboard
-Bu proje, bir üretim tesisindeki (Smart Factory) yüksek hacimli üretim ve stok verilerini otomatik olarak çeken, temizleyen ve AWS Redshift’e aktaran bir ETL sistemi ile birlikte, teknik ekiplerin veriyi kolayca inceleyebileceği interaktif bir dashboard’dan oluşuyor.
-Projenin Çözdüğü Sorunlar
+🎯 Problems Solved
+Data Fragmentation: Consolidated scattered Excel and CSV files from various network directories into a single source of truth (Redshift).
 
-Veriler farklı ağ klasörlerinde dağınık halde duran Excel ve CSV dosyaları tek bir yerde (Redshift) toplanıyordu.
-Her saat başı verileri manuel olarak çekme, temizleme ve yükleme işi oldukça zaman alıyordu ve hata riski yüksekti.
-Büyük dosyalar işlenirken RAM sorunu yaşıyorduk.
-Hassas bilgiler (sunucu adresleri, şifreler vb.) kodun içinde kalıyordu.
+Manual Overhead: Replaced time-consuming and error-prone hourly manual data processing with a fully autonomous pipeline.
 
-Teknik Mimari
-1. Otonom ETL Hattı (main.py)
+Memory Optimization: Overcame RAM limitations during the processing of large-scale datasets through optimized chunking.
 
-APScheduler ile her saat başı otomatik çalışacak şekilde zamanladım.
-Pandas ve regex kullanarak verileri temizliyor (hatalı karakterler, boş satırlar vs.).
-Redshift’e yüklerken önce Temp Table’a atıp ardından UPSERT (Merge) işlemiyle tekrar eden kayıtları engelliyor.
+Security Vulnerabilities: Decoupled sensitive credentials (server IPs, passwords) from the source code using secure secret management.
 
-2. İnteraktif Dashboard (dashboard.py)
+🛠 Technical Architecture
+⚙️ Autonomous ETL Pipeline (main.py)
+Scheduling: Implemented APScheduler to automate data tasks on an hourly basis.
 
-Streamlit ile geliştirildi.
-Üretim miktarı, hata oranları, parça bazlı özetler gibi KPI’ları gösteriyor.
-Altair ile zaman bazlı trend grafikleri ve dağılım grafikleri var.
-Üretim adımı, varyant ve tarih filtreleriyle veriyi rahatça inceleyebiliyorsunuz.
+Data Cleaning: Leveraged Pandas and Regex for robust data sanitization (handling corrupted characters, null values, and formatting).
 
-Kurulum ve Çalıştırma
+Database Logic: Developed an UPSERT (Merge) logic using temporary tables in Redshift to prevent duplicate records and ensure data integrity.
 
-Depoyu klonlayın:Bashgit clone https://github.com/ammarsonmez/industrial-data-pipeline.git
+📊 Interactive Dashboard (dashboard.py)
+Framework: Built with Streamlit for a lightweight and responsive UI.
+
+Key Metrics: Visualizes Production Volume, Error Rates, and Part-based summaries.
+
+Visualizations: Integrated Altair for time-series trend analysis and distribution charts.
+
+UX: Dynamic filtering by production step, variant, and date range for deep-dive analysis.
+
+🚀 Installation & Usage
+
+Clone the repository:
+git clone https://github.com/ammarsonmez/industrial-data-pipeline.git
 cd industrial-data-pipeline
-Gereksinimleri yükleyin:Bashpip install -r requirements.txt
-Dashboard’u çalıştırın:Bashstreamlit run dashboard.py
-ETL servisini başlatın:Bashpython main.py
 
-Güvenlik Notu
-Kurumsal ağ yolları, sunucu adresleri ve bazı hassas bilgiler gizlilik nedeniyle anonimleştirilmiştir. Veritabanı bağlantıları .streamlit/secrets.toml dosyası üzerinden yönetiliyor.
-Bu proje, Schaeffler stajı sırasında edindiğim tecrübelerle geliştirdiğim, gerçek üretim ortamı ihtiyaçlarına göre tasarlanmış bir sistem.
+Install dependencies:
+pip install -r requirements.txt
+
+Launch the Dashboard:
+streamlit run dashboard.py
+
+Start the ETL Service:
+python main.py
+
+🔒 Security & Context
+Anonymization: Corporate network paths and sensitive server details have been anonymized for privacy.
+
+Secret Management: Database credentials are managed via .streamlit/secrets.toml.
+
+Background: This project was inspired by real-world manufacturing challenges encountered during my internship at Schaeffler, designed to meet industrial-grade production requirements.
