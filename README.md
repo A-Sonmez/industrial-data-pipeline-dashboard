@@ -1,51 +1,51 @@
-Industrial Data Pipeline & Analytics Dashboard
-🏭 Smart Factory Data Management Solution
-This project features an automated ETL (Extract, Transform, Load) system designed for high-volume manufacturing and inventory data. It orchestrates the flow of data from decentralized network sources into AWS Redshift, complemented by an interactive Streamlit dashboard for real-time technical analysis.
+# 🏭 Industrial Data Pipeline & Analytics Dashboard
 
-🎯 Problems Solved
-Data Fragmentation: Consolidated scattered Excel and CSV files from various network directories into a single source of truth (Redshift).
+A robust, production-ready ETL solution that automatically moves production logs from the factory floor to AWS Redshift. It cleans messy data, runs on a schedule, and is fully containerized for easy deployment.
 
-Manual Overhead: Replaced time-consuming and error-prone hourly manual data processing with a fully autonomous pipeline.
+## 🎯 Why This Project Exists
+Factory logs are often dirty, incomplete, or inconsistent. This pipeline takes care of cleaning, validating, and loading them reliably into Redshift — so the team can focus on analysis instead of fighting with data.
 
-Memory Optimization: Overcame RAM limitations during the processing of large-scale datasets through optimized chunking.
+## 🌟 Key Features
+- **Fully automated ETL** — Runs every hour using APScheduler.
+- **Smart data cleaning** — Heavy use of Pandas and regex to fix and validate data before loading.
+- **Seamless Redshift integration** — Optimized loading with psycopg2.
+- **Dockerized & production ready** — Works consistently anywhere.
+- **Excellent logging** — Clear, real-time monitoring of successes and failures.
+- **Optional dashboard** — Streamlit interface for easy monitoring.
 
-Security Vulnerabilities: Decoupled sensitive credentials (server IPs, passwords) from the source code using secure secret management.
+## 🛠 Tech Stack
+- **Python 3.9+**
+- **Pandas & NumPy** for data processing
+- **AWS Redshift** (PostgreSQL-compatible)
+- **APScheduler** for scheduling
+- **Docker** for containerization
+- **Streamlit** (optional dashboard)
 
-🛠 Technical Architecture
-⚙️ Autonomous ETL Pipeline (main.py)
-Scheduling: Implemented APScheduler to automate data tasks on an hourly basis.
+## 🐳 Getting Started with Docker (Recommended)
 
-Data Cleaning: Leveraged Pandas and Regex for robust data sanitization (handling corrupted characters, null values, and formatting).
+### 1. Prerequisites
+- Docker Desktop installed
+- A `.streamlit/secrets.toml` file with your Redshift credentials
 
-Database Logic: Developed an UPSERT (Merge) logic using temporary tables in Redshift to prevent duplicate records and ensure data integrity.
+### 2. Build the Image
+docker build -t industrial-pipeline-service .
 
-📊 Interactive Dashboard (dashboard.py)
-Framework: Built with Streamlit for a lightweight and responsive UI.
+### 3. Run the Pipeline
+docker run -d --name etl_worker \
+  -v "$(pwd)/data:/app/data" \
+  -v "$(pwd)/.streamlit:/app/.streamlit" \
+  industrial-pipeline-service
 
-Key Metrics: Visualizes Production Volume, Error Rates, and Part-based summaries.
+### 4. Monitor Logs
+docker logs -f etl_worker
 
-Visualizations: Integrated Altair for time-series trend analysis and distribution charts.
+## 📂 Project Structure
+├── .streamlit/          # Secrets & config (never commit to git)
+├── data/                # Raw CSV files from production
+├── Dockerfile           # Docker build configuration
+├── main.py              # Main ETL logic + scheduler
+├── requirements.txt     # Project dependencies
+└── README.md            # Documentation
 
-UX: Dynamic filtering by production step, variant, and date range for deep-dive analysis.
-
-🚀 Installation & Usage
-
-Clone the repository:
-git clone https://github.com/ammarsonmez/industrial-data-pipeline.git
-cd industrial-data-pipeline
-
-Install dependencies:
-pip install -r requirements.txt
-
-Launch the Dashboard:
-streamlit run dashboard.py
-
-Start the ETL Service:
-python main.py
-
-🔒 Security & Context
-Anonymization: Corporate network paths and sensitive server details have been anonymized for privacy.
-
-Secret Management: Database credentials are managed via .streamlit/secrets.toml.
-
-Background: This project was inspired by real-world manufacturing challenges encountered during my internship at Schaeffler, designed to meet industrial-grade production requirements.
+## 📝 Important Note
+The pipeline is built for Redshift, but it gracefully handles environments without a live database connection. In local testing, it will log the connection error but still complete the data cleaning and processing steps successfully.
